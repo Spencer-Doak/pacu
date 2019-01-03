@@ -23,9 +23,47 @@ check_python_version() {
 
 install_pip_requirements() {
     echo "[ + ] Installing Pacu's Python package dependencies . . ."
-    echo "[ $ ] pip3 install -r requirements.txt"
 
-    PIP_OUTPUT=$(pip3 install -r requirements.txt)
+    # Determine if we should PIP install with the "--user" flag
+    ADDITIONAL_PIP_PARAMS=""
+    ISSUE_WARNING_FOR_PIP_ROOT_INSTALL=1
+    # If we are in a virtual environment OR if the effective user is root,
+    # then installing with --user is unnecessary.
+    # Note: in BASH, we should be able to reference $EUID instead of
+    # running the `id' command ourselves, but this is not the case in many
+    # other shells. Therefore, to ensure minimal difficulty for porting to
+    # other shell variants in the future, I am calling `id' below for
+    # retreiving the user's effective ID number. This should be compatible
+    # with most, if not all, other shells.
+    USERS_EFFECTIVE_ID=$(id --user)
+    if [ -z "$VIRTUAL_ENV" ] && [ "$USERS_EFFECTIVE_ID" != "0" ]; then
+        # Because $VIRTUAL_ENV is empty or not set, we can assume we are NOT
+        # inside of a Python virtual environment.
+        # We also know we are not root. Therefore, we will not have access to
+        # the system's Python installation's site-packages location.
+        # We should instead install with "--user" so the packages are
+        # installed for the session user.
+        ADDITIONAL_PIP_PARAMS="--user"
+    elif [ "$USERS_EFFECTIVE_ID" == "0" ]; then
+        # The installation script is being executed as root user.
+        # While this will let us install the required packages, we should
+        # consider issuing a warning to the user, because running PIP install
+        # as root is generally discouraged and considered an unsafe practice.
+        # It's not the best source discussing the issue, but you may reference
+        # the following StackOverflow answer for more on this matter:
+        # https://stackoverflow.com/a/21056000/2694511
+        if [[ ! -z "$ISSUE_WARNING_FOR_PIP_ROOT_INSTALL" ]]; then
+            echo "[ - ] It seems you are running this PIP installation as root."
+            echo "[ - ] Given the audience for this application, it is assumed that you know what you are doing and have accepted these risks. Therefore, the installation shall proceed."
+            echo "[ - ] However, if you were not aware of the risks of running PIP with root level permissions, then you should read up on the subject and keep these considerations in mind in the future."
+        fi
+    fi
+
+    echo "[ $ ] pip3 install -r requirements.txt ${ADDITIONAL_PIP_PARAMS}"
+    # Export variable so it is available to $(...), which is technically a
+    # sub-shell.
+    export ADDITIONAL_PIP_PARAMS;
+    PIP_OUTPUT=$(pip3 install -r requirements.txt $ADDITIONAL_PIP_PARAMS)
     PIP_ERROR_CODE=$?
 
     echo "$PIP_OUTPUT"
