@@ -1,3 +1,4 @@
+"""Helper module to  provide values for dummy data parameters."""
 from botocore.exceptions import ClientError
 
 # Stores found values to minimize AWS calls
@@ -5,6 +6,7 @@ PARAM_CACHE = {}
 
 
 def get_special_param(client, func, param):
+    """Determine function to call for param type and return value."""
     print('Getting info for func: {}, param: {}'.format(func, param))
     if param in PARAM_CACHE:
         return PARAM_CACHE[param]
@@ -12,7 +14,7 @@ def get_special_param(client, func, param):
     if param == 'Bucket':
         PARAM_CACHE[param] = get_bucket(client)
     elif param == 'Attribute':
-        # Return 'Attribute directly because it doesn't need to reach out to AWS
+        # Return Attribute directly because it doesn't need to reach out to AWS
         return(get_attribute(func))
     elif param == 'Key':
         PARAM_CACHE[param] = get_key(client)
@@ -20,6 +22,7 @@ def get_special_param(client, func, param):
 
 
 def get_key(client):
+    """Return a S3 object key, if available."""
     try:
         bucket = client.list_buckets()['Buckets'][0]['Name']
         key = client.list_objects_v2(
@@ -34,6 +37,7 @@ def get_key(client):
 
 
 def get_bucket(client):
+    """Return a cached bucket name, if available."""
     try:
         return client.list_buckets()['Buckets'][0]['Name']
     except ClientError as error:
@@ -43,6 +47,7 @@ def get_bucket(client):
 
 
 def get_attribute(func):
+    """Return a default EC2 attribute from static list."""
     FUNC_ATTRIBUTES = {
         'reset_image_attribute': 'launchPermission',
         'reset_instance_attribute': 'kernel',

@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
+"""Module to Bruceforce IAM permissions."""
 import argparse
-from datetime import datetime
 import json
 import os
 import re
+from datetime import datetime
 
 import boto3
-from botocore.exceptions import ClientError
-from botocore.exceptions import ParamValidationError
+from botocore.exceptions import ClientError, ParamValidationError
 
 from . import param_generator
 
-
 module_info = {
     'name': 'iam__bruteforce_permissions',
-    'author': 'Alexander Morgenstern at RhinoSecurityLabs',
+    'author': (
+        'Alexander Morgenstern at RhinoSecurityLabs. '
+        'Slight edits by Spencer-Doak.'
+    ),
     'category': 'ENUM',
     'one_liner': 'Enumerates permissions using brute force',
-    'description': "This module will automatically run through all possible API calls of supported services in order to enumerate permissions without the use of the IAM API.",
+    'description': (
+        'This module will automatically run through all possible API calls of '
+        'supported services in order to enumerate permissions without the use '
+        ' of the IAM API.'
+    ),
     'services': ['all'],
     'prerequisite_modules': [],
     'external_dependencies': [],
@@ -25,7 +31,10 @@ module_info = {
 }
 
 
-parser = argparse.ArgumentParser(add_help=False, description=module_info['description'])
+parser = argparse.ArgumentParser(
+    add_help=False,
+    description=module_info['description']
+)
 parser.add_argument(
     '--services',
     required=False,
@@ -35,7 +44,7 @@ parser.add_argument(
 
 SUPPORTED_SERVICES = [
     'ec2',
-    's3'
+    's3',
 ]
 
 current_client = None
@@ -44,21 +53,23 @@ current_service = None
 
 summary_data = {}
 
+_STAR_SEPARATORS = '*' * 25
+
 
 def complete_service_list():
-    """Returns a list of all supported boto3 services"""
+    """Return a list of all supported boto3 services."""
     session = boto3.session.Session()
     return session.get_available_services()
 
 
 def missing_param(param):
-    """Sets param to 'dummy_data'"""
+    """Set param to 'dummy_data'."""
     out = {param: 'dummy_data'}
     return out
 
 
 def invalid_param(valid_type):
-    """Returns an object matching the requested valid type."""
+    """Return an object matching the requested valid type."""
     print('Checking for invalid types')
     types = {
         'datetime.datetime': datetime(2015, 1, 1),
@@ -71,23 +82,42 @@ def invalid_param(valid_type):
 
 
 def error_delegator(error):
-    """Processes the complete error message. Trims the error response to not overwrite missing data with a valid type error"""
+    """Process complete error message.
+
+    Trims the error response to not overwrite missing data with a valid type
+    error.
+    """
     kwargs = {}
     # Ignore first line of error message and process in reverse order.
-    for line in str(error).split('\n')[::-1][:-1]:
+    err_msg_lines = str(error).split('\n')[::-1][:-1]
+    for line in err_msg_lines:
         print('    Processing Line: {}'.format(line))
         if 'Missing required parameter in input' in line:
             if line[line.find('"') + 1:-1] not in kwargs.keys():
-                kwargs = {**kwargs, **missing_param(line.split()[-1][1:-1])}
+                d_missed_params = missing_param(line.split()[-1][1:-1])
+                kwargs = {
+                    **kwargs,
+                    **d_missed_params
+                }
         elif 'Missing required parameter in' in line:
             # Grabs the parameter to build a dictionary of
             dict_name = line.split(':')[0].split()[-1]
             if '[' in dict_name:
                 # Need to populate missing parameters for a sub type
                 param = dict_name[:dict_name.find('.')]
-                sub_param = dict_name[dict_name.find('.') + 1:dict_name.find('[')]
+                sub_param = dict_name[
+                    dict_name.find('.') + 1:dict_name.find('[')
+                ]
                 missing_parameter = line[line.find('"') + 1:-1]
-                kwargs.update({param: {sub_param: [missing_param(missing_parameter)]}})
+                kwargs.update(
+                    {
+                        param: {
+                            sub_param: [
+                                missing_param(missing_parameter)
+                            ]
+                        }
+                    }
+                )
             else:
                 param = line.split(':')[1].strip()[1:-1]
                 if dict_name not in kwargs:
@@ -102,7 +132,8 @@ def error_delegator(error):
                 dict_name = param_name.split('.')[0]
                 param_name = param_name.split('.')[1]
                 if '[' in param_name:
-                    # The invalid parameter is a list within a dict within a dict
+                    # The invalid parameter is a list, within a dict within
+                    # another dict.
                     param_name = param_name[:param_name.find('[')]
                     valid_type = line.split("'")[3]
                     temp_dict = {param_name: [invalid_param(valid_type)]}
@@ -115,7 +146,8 @@ def error_delegator(error):
                 else:
                     kwargs[dict_name].update(temp_dict)
             else:
-                # Convert list of strings to list of dicts of invalid list subtype found.
+                # Convert list of strings to list of dicts if invalid list
+                # subtype found.
                 if param_name[:-3] == '[0]':
                     kwargs[param_name] = [{'DryRun': True}]
                 else:
@@ -125,7 +157,9 @@ def error_delegator(error):
 
 
 def generate_preload_actions():
-    """Certain actions require parameters that cannot be easily discerned from the
+    """Retrieve list of Preloaded Actions for use within KWArgs.
+
+    Certain actions require parameters that cannot be easily discerned from the
     error message provided by preloading kwargs for those actions.
     """
     module_dir = os.path.dirname(__file__)
@@ -136,8 +170,10 @@ def generate_preload_actions():
 
 
 def read_only_function(service, func):
-    """Verifies that actions being ran are ReadOnlyAccess to minimize unexpecteed
-    changes to the AWS enviornment.
+    """Return boolean indicating if a given action is read-only.
+
+    By verifying actions being ran are ReadOnlyAccess, the module can minimize
+    unexpecteed changes to the AWS enviornment.
     """
     module_dir = os.path.dirname(__file__)
     path = os.path.join(module_dir, 'ReadOnlyAccessPolicy.json')
@@ -151,7 +187,7 @@ def read_only_function(service, func):
 
 
 def valid_func(service, func):
-    """Returns False for service functions that don't correspond to an AWS API action"""
+    """Return False for service functions that don't use an AWS API action."""
     if func[0] == '_':
         return False
     BAD_FUNCTIONS = [
@@ -174,19 +210,32 @@ def valid_func(service, func):
 
 
 def convert_special_params(func, kwargs):
-    """Certain actions go through additional argument parsing. If such a case exists, the dummy_data will
-    be filled with valid data so that the action can successfully pass validation and reach and query
-    correctly determine authorization.
+    """Perform additional argument parsing to substitute dummy_data.
+
+    Certain actions go through additional argument parsing. If such a case
+    exists, the dummy_data will be filled with valid data so that the action
+    can successfully pass validation and reach and query correctly determine
+    authorization.
     """
     SPECIAL_PARAMS = [
         'Bucket',
         'Attribute',
         'Key',
     ]
-    for param in [param for param in kwargs if kwargs[param] == 'dummy_data']:
+    # Filter list
+    for param in kwargs:
+        # If the parameter is not 'dummy_data', then we do not need to look for
+        # substitutions and we can continue forward to the next parameter.
+        if kwargs[param] != 'dummy_data':
+            continue
+
         if param in SPECIAL_PARAMS:
             print('      Found special param')
-            kwargs[param] = param_generator.get_special_param(current_client, func, param)
+            kwargs[param] = param_generator.get_special_param(
+                current_client,
+                func,
+                param
+            )
             if kwargs[param] is None:
                 print('    Failed to fill in a valid special parameter.')
                 return False
@@ -199,20 +248,28 @@ def convert_special_params(func, kwargs):
 
 
 def build_service_list(services=None):
-    """Returns a list of valid services. """
+    """Return a list of valid services."""
     if not services:
         return SUPPORTED_SERVICES
 
-    unsupported_services = [service for service in services if service not in SUPPORTED_SERVICES]
+    unsupported_services = [
+        service for service in services if service not in SUPPORTED_SERVICES
+    ]
     summary_data['unsupported'] = unsupported_services
 
-    unknown_services = [service for service in unsupported_services if service not in complete_service_list()]
+    unknown_services = [
+        service for service in unsupported_services
+        if service not in complete_service_list()
+    ]
     summary_data['unknown'] = unknown_services
-    service_list = [service for service in services if service in SUPPORTED_SERVICES]
+    service_list = [
+        service for service in services if service in SUPPORTED_SERVICES
+    ]
     return service_list
 
 
 def error_code_special_parameter(code):
+    """Detemine if an error code is a special type."""
     COMMON_CODE_AFFIXES = [
         'Malformed',
         'NotFound',
@@ -231,14 +288,16 @@ def error_code_special_parameter(code):
 
 
 def exception_handler(func, kwargs, error):
+    """Handle exceptions to output useful info."""
     if isinstance(error, ParamValidationError):
         if 'Unknown parameter in input: "DryRun"' in str(error):
             print('DryRun failed. Retrying without DryRun parameter')
             del kwargs['DryRun']
         else:
-            if 'AvailabilityZone' not in kwargs and 'AvailabilityZone' in str(error):
+            _AvZ_CONST = 'AvailabilityZone'
+            if _AvZ_CONST not in kwargs and _AvZ_CONST in str(error):
                 print("Adding Availability Zone")
-                kwargs['AvailabilityZone'] = current_region + 'a'
+                kwargs[_AvZ_CONST] = current_region + 'a'
             else:
                 print('Parameter Validation Error: {}'.format(error))
                 kwargs.update(error_delegator(error))
@@ -246,8 +305,17 @@ def exception_handler(func, kwargs, error):
         # Error with request raised.
         print('ClientError: {}'.format(error))
         code = error.response['Error']['Code']
-        if code == 'AccessDeniedException' or code == 'OptInRequired' or 'Unauthorized' in str(error):
-            print('Unauthorized for permission: {}:{}'.format(current_service, func))
+        ACCESS_DENIED_RESP_CODES = [
+            'AccessDeniedException',
+            'OptInRequired',
+        ]
+        if code in ACCESS_DENIED_RESP_CODES or 'Unauthorized' in str(error):
+            print(
+                'Unauthorized for permission: {}:{}'.format(
+                    current_service,
+                    func
+                )
+            )
             return True
         elif code == 'MissingParameter':
             param = str(error).split()[-1]
@@ -274,14 +342,24 @@ def exception_handler(func, kwargs, error):
             param = param[1:-1]
             kwargs.update(**missing_param(param))
         else:
-            print('Unknown Error. Type: {} Full: {}'.format(type(error), str(error)))
+            print(
+                'Unknown Error. Type: {} Full: {}'.format(
+                    type(error), str(error)
+                )
+            )
     else:
-        print('Unknown Error. Type: {} Full: {}'.format(type(error), str(error)))
+        print(
+            'Unknown Error. Type: {} Full: {}'.format(
+                type(error), str(error)
+            )
+        )
     return False
 
 
 def valid_exception(error):
-    """There are certain Exceptions raised that indicate successful authorization.
+    """Determine if Exception type/message indicates successful authorization.
+
+    There are certain Exceptions raised that indicate successful authorization.
     This method will return True if one of those Exceptions is raised
     """
     VALID_EXCEPTIONS = [
@@ -306,12 +384,17 @@ def valid_exception(error):
 
 
 def main(args, pacu_main):
+    """Handle main orchestration of IAM Bruteforce module."""
     session = pacu_main.get_active_session()
     args = parser.parse_args(args)
     print = pacu_main.print
 
     preload_actions = generate_preload_actions()
-    service_list = build_service_list(args.services.split(',')) if args.services else build_service_list()
+    # Build out the service list, or use provided list if present.
+    service_list = build_service_list(
+        args.services.split(',') if args.services else []
+    )
+
     summary_data['services'] = service_list
     allow_permissions = {}
     deny_permissions = {}
@@ -322,23 +405,36 @@ def main(args, pacu_main):
         allow_permissions[service] = []
         deny_permissions[service] = []
 
-        # Only checking against 'us-east-1'. To store more granular permissions the DB needs to be changed.
+        # Only checking against 'us-east-1'.
+        # TODO: To store more granular permission the DB needs to be changed.
         regions = ['us-east-1']
         for region in regions:
             global current_region
             current_region = region
             global current_client
             current_client = pacu_main.get_boto3_client(service, region)
-            functions = [func for func in dir(current_client) if valid_func(service, func)]
+            functions = [
+                func for func in dir(current_client)
+                if valid_func(service, func)
+            ]
             index = 1
             for func in functions:
-                print('*************************NEW FUNCTION({}/{})*************************'.format(index, len(functions)))
+                print(
+                    _STAR_SEPARATORS +
+                    'NEW FUNCTION({}/{})'.format(index, len(functions)) +
+                    _STAR_SEPARATORS
+                )
                 index += 1
-                kwargs = preload_actions[func] if func in preload_actions else {}
+                kwargs = {}
+                if func in preload_actions:
+                    preload_actions[func]
+
                 # TODO, prepend DryRun argument only when it is accepted.
                 kwargs['DryRun'] = True
                 while True:
-                    print('---------------------------------------------------------')
+                    # Note: 57 seems really arbitrary, but this is the value
+                    # that was present before.
+                    print('-' * 57)
                     print('Trying {}...'.format(func))
                     print('Kwargs: {}'.format(kwargs))
                     caller = getattr(current_client, func)
@@ -355,18 +451,32 @@ def main(args, pacu_main):
                         elif exception_handler(func, kwargs, error):
                             deny_permissions[service].append(func)
                             break
-                print('*************************END FUNCTION*************************\n')
+                print(
+                    _STAR_SEPARATORS +
+                    'END FUNCTION' +
+                    _STAR_SEPARATORS +
+                    '\n'
+                )
 
     print('Allowed Permissions: \n')
     print_permissions(allow_permissions)
     print('Denied Permissions: \n')
     print_permissions(deny_permissions)
 
-    # Condenses the following dicts to a list that fits the standard service:action format.
+    # Condenses the following dicts to a list that fits the standard
+    # "service:Action" format.
     if allow_permissions:
-        full_allow = [service + ':' + camel_case(perm) for perm in allow_permissions[service] for service in allow_permissions]
+        full_allow = [
+            service + ':' + camel_case(perm)
+            for perm in allow_permissions[service]
+            for service in allow_permissions
+        ]
     if deny_permissions:
-        full_deny = [service + ':' + camel_case(perm) for perm in deny_permissions[service] for service in deny_permissions]
+        full_deny = [
+            service + ':' + camel_case(perm)
+            for perm in deny_permissions[service]
+            for service in deny_permissions
+        ]
 
     active_aws_key = session.get_active_aws_key(pacu_main.database)
     active_aws_key.update(
@@ -375,14 +485,18 @@ def main(args, pacu_main):
         deny_permissions=full_deny
     )
 
-    summary_data['allow'] = sum([len(allow_permissions[region]) for region in allow_permissions])
-    summary_data['deny'] = sum([len(deny_permissions[region]) for region in deny_permissions])
+    summary_data['allow'] = sum(
+        [len(allow_permissions[region]) for region in allow_permissions]
+    )
+    summary_data['deny'] = sum(
+        [len(deny_permissions[region]) for region in deny_permissions]
+    )
 
     return summary_data
 
 
 def print_permissions(permission_dict):
-    """Helper function to print permissions."""
+    """Help print permissions."""
     for service in permission_dict:
         print('  {}:'.format(service))
         for action in permission_dict[service]:
@@ -391,12 +505,13 @@ def print_permissions(permission_dict):
 
 
 def camel_case(name):
-    """Helper function to convert snake_case to CamelCase."""
+    """Help snake_case to CamelCase."""
     split_name = name.split('_')
     return ''.join([name[0].upper() + name[1:] for name in split_name])
 
 
 def summary(data, pacu_main):
+    """Summarize results of module's run."""
     out = 'Services: \n'
     out += '  Supported: {}.\n'.format(data['services'])
     if 'unsupported' in data:
