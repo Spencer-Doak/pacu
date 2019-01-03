@@ -62,7 +62,7 @@ install_pip_requirements() {
     echo "[ $ ] pip3 install -r requirements.txt ${ADDITIONAL_PIP_PARAMS}"
     # Export variable so it is available to $(...), which is technically a
     # sub-shell.
-    export $ADDITIONAL_PIP_PARAMS;
+    export ADDITIONAL_PIP_PARAMS;
     PIP_OUTPUT=$(pip3 install -r requirements.txt $ADDITIONAL_PIP_PARAMS)
     PIP_ERROR_CODE=$?
 
